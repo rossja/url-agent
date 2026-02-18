@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 client = OpenAI()
-mcp = FastMCP("url-agent-single-pass-planner")
+mcp = FastMCP("url-agent")
 
 def fetch(url: str, timeout=20) -> tuple[str, list[str]]:
     r = httpx.get(url, timeout=timeout, follow_redirects=True)
@@ -20,67 +20,222 @@ def fetch(url: str, timeout=20) -> tuple[str, list[str]]:
 def same_origin(root: str, u: str) -> bool:
     return urlparse(root).netloc == urlparse(u).netloc
 
-def plan(root_url: str, root_text: str, root_links: list[str], max_depth: int, max_pages: int) -> dict:
-    prompt = {
-        "task": "Plan a bounded crawl for understanding a URL well enough to implement the feature it describes.",
-        "constraints": {"max_depth": max_depth, "max_pages": max_pages, "same_origin_only": True},
-        "root_url": root_url,
-        "root_excerpt": root_text[:4000],
-        "candidate_links": [u for u in root_links if same_origin(root_url, u)][:30],
-        "output_schema": {
-            "fetch": [{"url": "string", "depth": "int", "why": "string"}],
-            "final_output_format": {
-                "feature_summary": "string",
-                "key_requirements": ["string"],
-                "interfaces_or_artifacts": ["string"],
-                "edge_cases": ["string"],
-                "implementation_notes": ["string"]
+def build_observation(
+    root_url: str,
+    corpus: list,
+    available_links: list,
+    max_depth: int,
+    max_pages: int,
+    last_error: str | None
+) -> str:
+    """
+    Build a text observation for the LLM that describes the current state.
+    """
+    obs = []
+
+    obs.append("# Current Crawl State")
+    obs.append(f"Root URL: {root_url}")
+    obs.append(f"Pages fetched: {len(corpus)}/{max_pages}")
+    obs.append(f"Max depth: {max_depth}")
+    obs.append("")
+
+    obs.append("## Corpus Summary")
+    for item in corpus:
+        obs.append(f"- [{item['depth']}] {item['url']}")
+        obs.append(f"  Preview: {item['text'][:200]}...")
+    obs.append("")
+
+    obs.append("## Available Links (not yet visited)")
+    for link in available_links[:20]:  # Limit to 20 to avoid token bloat
+        obs.append(f"- {link}")
+    if len(available_links) > 20:
+        obs.append(f"  ... and {len(available_links) - 20} more")
+    obs.append("")
+
+    if last_error:
+        obs.append(f"## Last Action Error")
+        obs.append(f"⚠️ {last_error}")
+        obs.append("")
+
+    obs.append("## Your Task")
+    obs.append("Analyze the current state and decide:")
+    obs.append("- Call `fetch_url(url, reason)` to explore a promising link")
+    obs.append("- Call `finish(reason)` if you have sufficient information")
+    obs.append("")
+    obs.append("Choose wisely to gather comprehensive information efficiently.")
+
+    return "\n".join(obs)
+
+def react_step(observation: str) -> dict:
+    """
+    Make one ReAct step: send observation to LLM with tools, return chosen action.
+    """
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "fetch_url",
+                "description": "Fetch and analyze a URL. Returns page content and links.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["url", "reason"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "finish",
+                "description": "Stop crawling. Call when you have sufficient information.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {"type": "string"}
+                    },
+                    "required": ["reason"]
+                }
             }
         }
+    ]
+
+    resp = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": "You are a web crawling agent. Your goal is to efficiently gather comprehensive information about a website."},
+            {"role": "user", "content": observation}
+        ],
+        tools=tools,
+        tool_choice="required"  # Force tool call (no free-form text)
+    )
+
+    # Extract tool call
+    tool_call = resp.choices[0].message.tool_calls[0]
+
+    return {
+        "name": tool_call.function.name,
+        "arguments": json.loads(tool_call.function.arguments)
     }
 
-    resp = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": "You are a planner. Return ONLY valid JSON matching the requested schema."},
-            {"role": "user", "content": json.dumps(prompt)}
-        ],
-    )
-    return json.loads(resp.choices[0].message.content)
+def synthesize_react(corpus: list, root_url: str) -> str:
+    """
+    Synthesize final structured output from crawled corpus.
+    Similar to original synthesize() but adapted for ReAct output.
+    """
+    # Build synthesis prompt
+    prompt_parts = []
+    prompt_parts.append(f"# URL Analysis Task")
+    prompt_parts.append(f"Root URL: {root_url}")
+    prompt_parts.append(f"")
+    prompt_parts.append(f"## Crawled Pages ({len(corpus)} total)")
 
-def synthesize(plan_obj: dict, corpus: list[dict]) -> dict:
-    payload = {"plan": plan_obj, "pages": corpus}
+    for item in corpus:
+        prompt_parts.append(f"### {item['url']} (depth {item['depth']})")
+        prompt_parts.append(item['text'])
+        prompt_parts.append("")
+
+    prompt_parts.append("## Output Requirements")
+    prompt_parts.append("Synthesize the above into structured JSON:")
+    prompt_parts.append(json.dumps({
+        "feature_summary": "Brief description of what this website/tool does",
+        "key_requirements": ["List of important requirements or features"],
+        "interfaces_or_artifacts": ["APIs, schemas, configs, etc."],
+        "edge_cases": ["Notable limitations or edge cases"],
+        "implementation_notes": ["Technical details for implementation"]
+    }, indent=2))
+
+    prompt = "\n".join(prompt_parts)
+
+    # Call LLM for synthesis
     resp = client.chat.completions.create(
         model=MODEL,
         messages=[
-            {"role": "system", "content": "Produce the final output EXACTLY in the plan's final_output_format keys. Return ONLY JSON."},
-            {"role": "user", "content": json.dumps(payload)[:240000]},
+            {"role": "system", "content": "You are a technical analyst. Synthesize the crawled content into structured output."},
+            {"role": "user", "content": prompt[:240000]}  # Token limit
         ],
+        response_format={"type": "json_object"}
     )
-    return json.loads(resp.choices[0].message.content)
+
+    return resp.choices[0].message.content
 
 @mcp.tool()
 def summarize_url(url: str, max_depth: int = 2, max_pages: int = 4) -> str:
-    root_text, root_links = fetch(url)
-    plan_obj = plan(url, root_text, root_links, max_depth, max_pages)
+    """Main entry point with ReAct loop."""
 
-    visited = set()
+    # Initialize state
     corpus = []
+    visited = set()
+    all_discovered_links = []
+    last_error = None
 
-    visited.add(url)
-    corpus.append({"url": url, "depth": 0, "text": root_text[:12000]})
+    # Fetch root URL
+    try:
+        root_text, root_links = fetch(url)
+        visited.add(url)
+        corpus.append({"url": url, "depth": 0, "text": root_text[:12000]})
+        all_discovered_links.extend([u for u in root_links if same_origin(url, u)])
+    except Exception as e:
+        return json.dumps({"error": f"Failed to fetch root URL: {str(e)}"})
 
-    for item in plan_obj.get("fetch", [])[:max_pages]:
-        u = item.get("url")
-        d = int(item.get("depth", 1))
-        if not u or u in visited or d > max_depth or not same_origin(url, u):
-            continue
-        t, _ = fetch(u)
-        visited.add(u)
-        corpus.append({"url": u, "depth": d, "text": t[:12000]})
+    # ReAct loop
+    while len(corpus) < max_pages:
+        # Build observation for LLM
+        observation = build_observation(
+            root_url=url,
+            corpus=corpus,
+            available_links=[u for u in all_discovered_links if u not in visited],
+            max_depth=max_depth,
+            max_pages=max_pages,
+            last_error=last_error
+        )
 
-    out = synthesize(plan_obj, corpus)
-    return json.dumps(out, indent=2)
+        # LLM reasons and chooses action (with tools)
+        tool_call = react_step(observation)
+
+        if tool_call["name"] == "finish":
+            # Agent decided it has enough info
+            break
+
+        elif tool_call["name"] == "fetch_url":
+            target_url = tool_call["arguments"]["url"]
+            reason = tool_call["arguments"]["reason"]
+
+            # Validate URL
+            if target_url in visited:
+                last_error = f"URL already visited: {target_url}"
+                continue
+
+            if not same_origin(url, target_url):
+                last_error = f"URL not same-origin: {target_url}"
+                continue
+
+            # Determine depth (simple heuristic: count path segments)
+            depth = urlparse(target_url).path.count('/') if urlparse(target_url).path else 1
+            if depth > max_depth:
+                last_error = f"URL exceeds max_depth: {target_url}"
+                continue
+
+            # Attempt fetch
+            try:
+                text, links = fetch(target_url)
+                visited.add(target_url)
+                corpus.append({"url": target_url, "depth": depth, "text": text[:12000]})
+
+                # Add newly discovered links
+                new_links = [u for u in links if same_origin(url, u) and u not in all_discovered_links]
+                all_discovered_links.extend(new_links)
+
+                last_error = None  # Clear error on success
+
+            except Exception as e:
+                last_error = f"Failed to fetch {target_url}: {str(e)}"
+                # Continue loop - agent will see error in next observation
+
+    # Synthesize final output
+    return synthesize_react(corpus, url)
 
 if __name__ == "__main__":
     mcp.run()

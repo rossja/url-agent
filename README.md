@@ -1,9 +1,9 @@
-# URL Agent — Single-Pass Planner (MCP Tool)
+# URL Agent — ReAct Loop (MCP Tool)
 
-Minimal autonomous URL ingestion agent with:
+Adaptive autonomous URL ingestion agent with:
 
-- Single-pass LLM planning
-- Deterministic execution
+- ReAct (Reason + Act) loop architecture
+- Intelligent, adaptive crawling
 - Structured synthesis output
 - MCP server interface
 - Docker support
@@ -12,12 +12,14 @@ Minimal autonomous URL ingestion agent with:
 
 # Overview
 
-This project demonstrates a narrow but functional definition of an “agent”:
+This project demonstrates an adaptive agent using the ReAct pattern:
 
 1. Fetch root URL
-2. Use one LLM call to generate a bounded crawl plan
-3. Execute that plan deterministically
-4. Use one LLM call to synthesize structured output
+2. Enter ReAct loop where the agent:
+   - Observes current state (crawled pages, available links, errors)
+   - Reasons about what to do next (using LLM with function calling)
+   - Acts by either fetching a promising URL or finishing early
+3. Synthesize structured output from gathered content
 
 The agent exposes a single MCP tool:
 
@@ -109,31 +111,34 @@ Once registered:
 
 The agent will:
 
-1. Fetch the page
-2. Decide which same-origin links to follow
-3. Aggregate relevant content
-4. Return structured JSON suitable for code generation
+1. Fetch the root page
+2. Adaptively explore promising same-origin links based on their content
+3. Stop early when sufficient information is gathered (or hit max_pages limit)
+4. Handle errors gracefully (dead links, timeouts, etc.)
+5. Return structured JSON suitable for code generation
 
 ---
 
 # Environment Variables
 
-| Variable        | Default       | Description                          |
-|----------------|--------------|--------------------------------------|
-| OPENAI_MODEL   | gpt-4o-mini  | Model used for planning + synthesis  |
-| OPENAI_API_KEY | required     | OpenAI API key                      |
+| Variable        | Default       | Description                              |
+|----------------|--------------|------------------------------------------|
+| OPENAI_MODEL   | gpt-4o-mini  | Model used for ReAct steps + synthesis   |
+| OPENAI_API_KEY | required     | OpenAI API key                          |
 
 ---
 
 # Design Notes
 
-- Planning is single-pass (one LLM call)
-- Execution is deterministic
-- Synthesis is single-pass
-- Crawl is bounded by `max_depth` and `max_pages`
+- Uses ReAct (Reason + Act) loop with OpenAI function calling
+- Agent adaptively chooses which links to explore based on content
+- Agent can stop early via `finish()` tool when it has sufficient information
+- Crawl is bounded by hard limits (`max_depth` and `max_pages`)
 - Same-origin links only
+- Errors are passed to agent as observations for adaptive recovery
+- Synthesis happens at the end (single LLM call)
 
-This keeps autonomy minimal, observable, and constrained.
+This makes the agent more intelligent and adaptive while maintaining safety through hard limits.
 
 ---
 
