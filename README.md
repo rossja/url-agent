@@ -75,6 +75,8 @@ docker run --rm -i \
 
 The container runs an MCP server over standard I/O.
 
+For local runs with `uv`, you can use a `.env` file instead of exporting variables manually (see Configuration section below).
+
 ---
 
 # MCP Configuration Example
@@ -121,10 +123,190 @@ The agent will:
 
 # Environment Variables
 
-| Variable        | Default       | Description                              |
-|----------------|--------------|------------------------------------------|
-| OPENAI_MODEL   | gpt-4o-mini  | Model used for ReAct steps + synthesis   |
-| OPENAI_API_KEY | required     | OpenAI API key                          |
+| Variable          | Default                       | Description                                    |
+|-------------------|-------------------------------|------------------------------------------------|
+| MODEL_PROVIDER    | openai                        | Provider to use: `openai` or `ollama`         |
+| OPENAI_MODEL      | gpt-4o-mini                   | Model used for ReAct steps + synthesis        |
+| OPENAI_API_KEY    | required (for openai)         | OpenAI API key                                |
+| OLLAMA_BASE_URL   | http://localhost:11434/v1     | Ollama endpoint (optional)                    |
+
+---
+
+# Using Local Models with Ollama
+
+URL Agent supports running with local Ollama models as a cost-free, privacy-preserving alternative to cloud-based OpenAI models.
+
+## Prerequisites
+
+1. **Install Ollama**: Download from https://ollama.ai
+2. **Pull a model**: Run `ollama pull llama3` (or any model you prefer)
+3. **Verify Ollama is running**: Run `ollama list` to see installed models
+
+## Quick Start (Local Usage)
+
+This is the primary use case - running both Ollama and url-agent locally.
+
+**Option 1: Using .env file (Recommended)**
+
+```bash
+# Check what models you have installed
+ollama list
+
+# Create and configure .env file
+cp .env.example .env
+# Edit .env to set MODEL_PROVIDER=ollama and OPENAI_MODEL=your-model
+
+# Run the agent (automatically loads .env)
+uv run python url_agent.py
+```
+
+**Option 2: Using environment variables**
+
+```bash
+# Set environment variables
+export MODEL_PROVIDER=ollama
+export OPENAI_MODEL=llama3  # or whatever model you have
+
+# Run the agent
+uv run python url_agent.py
+```
+
+## Configuration with .env File (Recommended)
+
+Create a `.env` file for persistent configuration:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` to configure your provider and model:
+
+```bash
+MODEL_PROVIDER=ollama
+OPENAI_MODEL=llama3
+```
+
+The `.env` file is automatically loaded when you run the agent:
+
+```bash
+uv run python url_agent.py
+```
+
+No need to manually export variables - the agent loads them automatically from `.env`.
+
+## Model Selection and Function Calling Quality
+
+**Important**: Not all Ollama models handle function calling equally well. The ReAct loop relies on the model's ability to correctly use the `fetch_url` and `finish` tools.
+
+**Recommendations**:
+- Models with strong instruction-following work best
+- Larger parameter counts generally perform better
+- Test your specific model - if function calling fails, try a different model
+
+**Popular models to try**:
+```bash
+ollama pull llama3          # Good balance of size/quality
+ollama pull mistral         # Fast and capable
+ollama pull qwen2.5         # Strong reasoning abilities
+```
+
+## MCP Configuration with Ollama
+
+Example MCP client configuration for using url-agent with Ollama:
+
+```json
+{
+  "mcpServers": {
+    "url-agent-ollama": {
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "/path/to/url-agent/url_agent.py"
+      ],
+      "env": {
+        "MODEL_PROVIDER": "ollama",
+        "OPENAI_MODEL": "llama3"
+      }
+    }
+  }
+}
+```
+
+Replace `/path/to/url-agent` with your actual path.
+
+## Docker Usage (Advanced)
+
+If you're running url-agent in Docker while Ollama is on the host machine, you need to adjust the `OLLAMA_BASE_URL`:
+
+**macOS/Windows**:
+```bash
+docker run --rm -i \
+  -e MODEL_PROVIDER=ollama \
+  -e OPENAI_MODEL=llama3 \
+  -e OLLAMA_BASE_URL=http://host.docker.internal:11434/v1 \
+  url-agent
+```
+
+**Linux**:
+```bash
+# Option 1: Use host networking
+docker run --rm -i --network host \
+  -e MODEL_PROVIDER=ollama \
+  -e OPENAI_MODEL=llama3 \
+  url-agent
+
+# Option 2: Use host IP address
+docker run --rm -i \
+  -e MODEL_PROVIDER=ollama \
+  -e OPENAI_MODEL=llama3 \
+  -e OLLAMA_BASE_URL=http://172.17.0.1:11434/v1 \
+  url-agent
+```
+
+## Troubleshooting
+
+### "Connection refused" or "Cannot connect to Ollama"
+
+**Check if Ollama is running**:
+```bash
+ollama list
+```
+
+If this fails, start Ollama (it usually runs as a background service after installation).
+
+**Verify the endpoint**:
+```bash
+curl http://localhost:11434/v1/models
+```
+
+Should return a JSON response with available models.
+
+### "Model not found"
+
+**List installed models**:
+```bash
+ollama list
+```
+
+**Pull the model you want**:
+```bash
+ollama pull llama3
+```
+
+### Function calling errors or invalid tool calls
+
+Some models struggle with function calling. Try:
+1. A different model (larger models generally work better)
+2. Setting a lower `max_pages` limit to reduce complexity
+3. Checking Ollama logs for hints: `ollama logs`
+
+### Performance is slow
+
+- Ollama runs models locally - inference speed depends on your hardware
+- Larger models (70B+) require significant RAM/VRAM
+- Consider using smaller models (7B-13B) for faster responses
+- GPU acceleration significantly improves speed (Ollama uses GPU automatically if available)
 
 ---
 

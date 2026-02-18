@@ -4,9 +4,24 @@ import httpx
 from bs4 import BeautifulSoup
 from openai import OpenAI
 from mcp.server.fastmcp import FastMCP
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+# override=True ensures .env takes precedence over existing env vars
+load_dotenv(override=True)
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-client = OpenAI()
+MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "openai").lower()
+
+# Configure client based on provider
+if MODEL_PROVIDER == "ollama":
+    # Ollama uses OpenAI-compatible API at localhost:11434
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    client = OpenAI(base_url=base_url, api_key="ollama")
+elif MODEL_PROVIDER == "openai":
+    client = OpenAI()  # Uses OPENAI_API_KEY from environment
+else:
+    raise ValueError(f"Unknown MODEL_PROVIDER: {MODEL_PROVIDER}")
 mcp = FastMCP("url-agent")
 
 def fetch(url: str, timeout=20) -> tuple[str, list[str]]:

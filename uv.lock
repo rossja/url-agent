@@ -819,6 +819,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "openai" },
+    { name = "python-dotenv" },
 ]
 
 [package.metadata]
@@ -827,6 +828,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "openai" },
+    { name = "python-dotenv" },
 ]
 
 [package.metadata.requires-dev]
