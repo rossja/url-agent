@@ -60,7 +60,7 @@ def synthesize(plan_obj: dict, corpus: list[dict]) -> dict:
     return json.loads(resp.choices[0].message.content)
 
 @mcp.tool()
-def agent_summarize_url(url: str, max_depth: int = 2, max_pages: int = 4) -> str:
+def summarize_url(url: str, max_depth: int = 2, max_pages: int = 4) -> str:
     root_text, root_links = fetch(url)
     plan_obj = plan(url, root_text, root_links, max_depth, max_pages)
 

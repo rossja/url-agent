@@ -22,7 +22,7 @@ This project demonstrates a narrow but functional definition of an “agent”:
 The agent exposes a single MCP tool:
 
 ```
-agent_summarize_url(url: str, max_depth: int = 2, max_pages: int = 4)
+summarize_url(url: str, max_depth: int = 2, max_pages: int = 4)
 ```
 
 It returns structured JSON describing:
@@ -105,7 +105,7 @@ Replace `YOUR_KEY` with your actual key or inject it via your IDE’s secret man
 
 Once registered:
 
-> “Use agent_summarize_url on https://example.com and help implement what it describes.”
+> "Use summarize_url on https://example.com and help implement what it describes."
 
 The agent will:
 
