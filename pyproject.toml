@@ -1,14 +1,26 @@
 [project]
 name = "url-agent"
 version = "0.1.0"
+description = "MCP server for adaptive web crawling with ReAct agent"
 requires-python = ">=3.11"
 dependencies = [
   "mcp",
   "openai",
+  "anthropic",
   "httpx",
   "beautifulsoup4",
   "python-dotenv",
 ]
+
+[project.scripts]
+urlagent = "url_agent.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/url_agent"]
 
 [tool.uv]
 dev-dependencies = []

@@ -40,10 +40,23 @@ It returns structured JSON describing:
 # Project Structure
 
 ```
-url_agent/
-  url_agent.py
+url-agent/
+  src/
+    url_agent/              # Main package
+      __init__.py           # Package marker
+      __main__.py           # Entry point for 'python -m url_agent'
+      server.py             # Main entry point (MCP server)
+      react_agent.py        # Core ReAct logic (provider-agnostic)
+      web_fetcher.py        # Web scraping utilities
+      providers/
+        __init__.py         # Provider factory
+        base.py             # Abstract base class
+        openai_provider.py  # OpenAI implementation
+        ollama_provider.py  # Ollama implementation
+        anthropic_provider.py # Anthropic implementation
   pyproject.toml
   Dockerfile
+  README.md
 ```
 
 ---
@@ -51,7 +64,10 @@ url_agent/
 # Requirements
 
 - Docker (recommended)
-- OpenAI API key
+- API key for your chosen provider:
+  - OpenAI API key (for OpenAI models)
+  - Anthropic API key (for Claude models)
+  - Or use Ollama for local models (no API key needed)
 
 ---
 
@@ -83,6 +99,8 @@ For local runs with `uv`, you can use a `.env` file instead of exporting variabl
 
 Example MCP client configuration:
 
+**Option 1: Using Docker (Recommended for isolation)**
+
 ```json
 {
   "mcpServers": {
@@ -101,7 +119,22 @@ Example MCP client configuration:
 }
 ```
 
-Replace `YOUR_KEY` with your actual key or inject it via your IDE’s secret manager.
+**Option 2: Using installed package (faster, requires local install)**
+
+```json
+{
+  "mcpServers": {
+    "url-agent": {
+      "command": "urlagent",
+      "env": {
+        "OPENAI_API_KEY": "YOUR_KEY"
+      }
+    }
+  }
+}
+```
+
+Replace `YOUR_KEY` with your actual key or inject it via your IDE's secret manager.
 
 ---
 
@@ -123,12 +156,113 @@ The agent will:
 
 # Environment Variables
 
-| Variable          | Default                       | Description                                    |
-|-------------------|-------------------------------|------------------------------------------------|
-| MODEL_PROVIDER    | openai                        | Provider to use: `openai` or `ollama`         |
-| OPENAI_MODEL      | gpt-4o-mini                   | Model used for ReAct steps + synthesis        |
-| OPENAI_API_KEY    | required (for openai)         | OpenAI API key                                |
-| OLLAMA_BASE_URL   | http://localhost:11434/v1     | Ollama endpoint (optional)                    |
+| Variable          | Default                       | Description                                           |
+|-------------------|-------------------------------|-------------------------------------------------------|
+| MODEL_PROVIDER    | openai                        | Provider to use: `openai`, `ollama`, or `anthropic`  |
+| OPENAI_MODEL      | gpt-4o-mini                   | Model used for ReAct steps + synthesis               |
+| OPENAI_API_KEY    | required (for openai)         | OpenAI API key                                       |
+| ANTHROPIC_API_KEY | required (for anthropic)      | Anthropic API key                                    |
+| OLLAMA_BASE_URL   | http://localhost:11434/v1     | Ollama endpoint (optional)                           |
+
+---
+
+# Using Anthropic Claude Models
+
+URL Agent supports Anthropic's Claude models, which offer excellent reasoning capabilities and strong tool use (function calling).
+
+## Prerequisites
+
+1. **Get an Anthropic API key**: Sign up at https://console.anthropic.com
+2. **Choose a Claude model**: See model recommendations below
+
+## Quick Start
+
+**Option 1: Using .env file (Recommended)**
+
+```bash
+# Create and configure .env file
+cp .env.example .env
+# Edit .env to set:
+# MODEL_PROVIDER=anthropic
+# OPENAI_MODEL=claude-3-5-sonnet-20241022
+# ANTHROPIC_API_KEY=your-api-key-here
+
+# Run the agent (automatically loads .env)
+uv run urlagent
+```
+
+**Option 2: Using environment variables**
+
+```bash
+# Set environment variables
+export MODEL_PROVIDER=anthropic
+export OPENAI_MODEL=claude-3-5-sonnet-20241022
+export ANTHROPIC_API_KEY=your-api-key-here
+
+# Run the agent
+uv run urlagent
+```
+
+## Model Recommendations
+
+**Recommended (Production)**:
+- `claude-3-5-sonnet-20241022` - Best balance of speed, cost, and capability
+- Strong tool use and structured output
+- Excellent at following instructions
+
+**Maximum Quality**:
+- `claude-3-opus-20240229` - Most capable Claude model
+- Use for complex multi-page sites requiring deep reasoning
+- Higher cost and slower than Sonnet
+
+**Development/Testing**:
+- `claude-3-haiku-20240307` - Fast and economical
+- Good for testing and simple sites
+- May struggle with complex multi-step reasoning
+
+## MCP Configuration with Anthropic
+
+Example MCP client configuration for using url-agent with Claude:
+
+```json
+{
+  "mcpServers": {
+    "url-agent-claude": {
+      "command": "urlagent",
+      "env": {
+        "MODEL_PROVIDER": "anthropic",
+        "OPENAI_MODEL": "claude-3-5-sonnet-20241022",
+        "ANTHROPIC_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+Note: This assumes you've installed url-agent with `uv sync`. If you prefer to run from source without installing, use `uv --directory /path/to/url-agent run urlagent` as the command.
+
+## Docker Usage with Anthropic
+
+```bash
+docker run --rm -i \
+  -e MODEL_PROVIDER=anthropic \
+  -e OPENAI_MODEL=claude-3-5-sonnet-20241022 \
+  -e ANTHROPIC_API_KEY=your-api-key-here \
+  url-agent
+```
+
+## Why Use Anthropic?
+
+**Advantages**:
+- Excellent reasoning and tool use capabilities
+- Strong at following complex instructions
+- Good balance of speed and quality with Sonnet models
+- Competitive pricing
+
+**Considerations**:
+- Requires API key and internet connection (unlike Ollama)
+- API costs per request (though Sonnet is very cost-effective)
+- Rate limits on API usage
 
 ---
 
@@ -157,7 +291,7 @@ cp .env.example .env
 # Edit .env to set MODEL_PROVIDER=ollama and OPENAI_MODEL=your-model
 
 # Run the agent (automatically loads .env)
-uv run python url_agent.py
+uv run urlagent
 ```
 
 **Option 2: Using environment variables**
@@ -168,7 +302,7 @@ export MODEL_PROVIDER=ollama
 export OPENAI_MODEL=llama3  # or whatever model you have
 
 # Run the agent
-uv run python url_agent.py
+uv run urlagent
 ```
 
 ## Configuration with .env File (Recommended)
@@ -189,7 +323,7 @@ OPENAI_MODEL=llama3
 The `.env` file is automatically loaded when you run the agent:
 
 ```bash
-uv run python url_agent.py
+uv run urlagent
 ```
 
 No need to manually export variables - the agent loads them automatically from `.env`.
@@ -218,12 +352,7 @@ Example MCP client configuration for using url-agent with Ollama:
 {
   "mcpServers": {
     "url-agent-ollama": {
-      "command": "uv",
-      "args": [
-        "run",
-        "python",
-        "/path/to/url-agent/url_agent.py"
-      ],
+      "command": "urlagent",
       "env": {
         "MODEL_PROVIDER": "ollama",
         "OPENAI_MODEL": "llama3"
@@ -233,7 +362,7 @@ Example MCP client configuration for using url-agent with Ollama:
 }
 ```
 
-Replace `/path/to/url-agent` with your actual path.
+Note: This assumes you've installed url-agent with `uv sync`. If you prefer to run from source without installing, use `uv --directory /path/to/url-agent run urlagent` as the command.
 
 ## Docker Usage (Advanced)
 
@@ -329,8 +458,17 @@ This makes the agent more intelligent and adaptive while maintaining safety thro
 If you prefer uv locally:
 
 ```bash
+# Install the package in development mode
 uv sync
-uv run python url_agent.py
+
+# Run the server
+uv run urlagent
+```
+
+Alternatively, you can run it as a module:
+
+```bash
+uv run python -m url_agent
 ```
 
 ---
