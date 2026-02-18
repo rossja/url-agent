@@ -1,2 +1,3 @@
 # url-agent
-simple url agent with mcp support
+
+simple url summary agent with mcp support
